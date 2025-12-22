@@ -36,9 +36,12 @@ runs:
       jq --arg v "$NEW_VERSION" '.version=$v' package.json > "$tmp" && mv "$tmp" package.json
 
       branch=${GITHUB_REF##*/}
+      pkg_name=$(jq -r .name package.json)
 
       if [[ "$branch" == "$DEV_BRANCH" ]]; then
         bun publish --tag dev --access "$ACCESS"
+        echo "🚀 Published ${pkg_name}@${NEW_VERSION} (tag: dev)"
       else
         bun publish --access "$ACCESS"
+        echo "🚀 Published ${pkg_name}@${NEW_VERSION} (tag: latest)"
       fi

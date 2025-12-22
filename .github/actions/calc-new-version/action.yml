@@ -65,7 +65,9 @@ runs:
 
       else
         echo "new_version=" >> "$GITHUB_OUTPUT"
+        echo "⏭️ Skipping: branch '$branch' is not main or dev"
         exit 0
       fi
 
       echo "new_version=$new_ver" >> "$GITHUB_OUTPUT"
+      echo "🆕 New version: $new_ver (bump: $level)"

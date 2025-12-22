@@ -36,3 +36,4 @@ runs:
       # Query npm registry API directly (no node required)
       latest=$(curl -s "https://registry.npmjs.org/${PKG_NAME}" | jq -r ".\"dist-tags\".\"${tag}\" // \"0.0.0\"")
       echo "npm_v=$latest" >> "$GITHUB_OUTPUT"
+      echo "📌 Current npm version: $latest (tag: $tag)"

@@ -31,8 +31,8 @@ runs:
     run: |
       # If no version exists on npm, we have changes
       if [[ -z "$NPM_VERSION" || "$NPM_VERSION" == "0.0.0" || "$NPM_VERSION" == "null" ]]; then
-        echo "No existing version on npm, publishing required"
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        echo "✅ No existing version on npm, first publish"
         exit 0
       fi
 
@@ -45,8 +45,8 @@ runs:
       tarball_url=$(curl -s "https://registry.npmjs.org/${PKG_NAME}/${NPM_VERSION}" | jq -r '.dist.tarball')
 
       if [[ -z "$tarball_url" || "$tarball_url" == "null" ]]; then
-        echo "Could not fetch tarball URL, assuming changes exist"
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        echo "⚠️ Could not fetch tarball URL, assuming changes exist"
         exit 0
       fi
 
@@ -66,8 +66,8 @@ runs:
       fi
 
       if [[ -z "$local_tarball" ]]; then
-        echo "Could not create local tarball, assuming changes exist"
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        echo "⚠️ Could not create local tarball, assuming changes exist"
         exit 0
       fi
 
@@ -84,10 +84,10 @@ runs:
 
       # Compare all files
       if diff -rq "$local_dir" "$published_dir" > /dev/null 2>&1; then
-        echo "No changes detected"
         echo "has_changes=false" >> "$GITHUB_OUTPUT"
+        echo "⏭️ No changes detected, skipping publish"
       else
-        echo "Changes detected:"
-        diff -rq "$local_dir" "$published_dir" || true
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        echo "✅ Changes detected:"
+        diff -rq "$local_dir" "$published_dir" || true
       fi

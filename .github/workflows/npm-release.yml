@@ -74,6 +74,7 @@ jobs:
         run: |
           name=$(jq -r .name package.json)
           echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "📦 Package: $name"
 
       - name: Get latest npm version
         id: npm_tag
