@@ -57,6 +57,8 @@ jobs:
         with:
           node-version: lts/*
 
+      - uses: oven-sh/setup-bun@v2
+
       - name: Configure npm token
         shell: bash
         env:
@@ -94,8 +96,8 @@ jobs:
         env:
           BUILD_COMMAND: ${{ inputs.build-command }}
         run: |
-          npm install
-          npm run "$BUILD_COMMAND"
+          bun install
+          bun run "$BUILD_COMMAND"
 
       - name: Publish
         if: ${{ steps.bump.outputs.version != '' }}
