@@ -3,10 +3,6 @@ name: NPM Release
 on:
   workflow_call:
     inputs:
-      npm-token:
-        description: "npm token with publish rights"
-        type: string
-        required: true
       build-script:
         description: "npm script to run before publishing"
         type: string
