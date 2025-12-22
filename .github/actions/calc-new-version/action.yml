@@ -1,0 +1,66 @@
+name: Calculate new version
+description: Calculate the new version to publish based on commits
+
+inputs:
+  npm-version:
+    description: "Current npm version"
+    required: true
+  main-branch:
+    description: "Main release branch"
+    required: false
+    default: "main"
+  dev-branch:
+    description: "Dev prerelease branch"
+    required: false
+    default: "dev"
+
+outputs:
+  version:
+    description: "New version to publish"
+    value: ${{ steps.bump.outputs.new_version }}
+
+runs:
+  using: composite
+  steps:
+  - name: Calculate new version
+    id: bump
+    shell: bash
+    env:
+      MAIN_BRANCH: ${{ inputs.main-branch }}
+      DEV_BRANCH: ${{ inputs.dev-branch }}
+      NPM_V: ${{ inputs.npm-version }}
+    run: |
+      branch=${GITHUB_REF##*/}
+      npm_v="$NPM_V"
+
+      if [[ -z "$npm_v" || "$npm_v" == "null" ]]; then
+        npm_v="0.0.0"
+      fi
+
+      if [[ "$branch" == "$MAIN_BRANCH" ]]; then
+        if git log HEAD~10..HEAD --pretty=%B | grep -qE '!:|BREAKING CHANGE'; then
+          level=major
+        elif git log HEAD~10..HEAD --pretty=%s | grep -q '^feat'; then
+          level=minor
+        else
+          level=patch
+        fi
+        new_ver=$(npx semver -i "$level" "$npm_v")
+
+      elif [[ "$branch" == "$DEV_BRANCH" ]]; then
+        base=$(echo "$npm_v" | sed 's/-dev\.[0-9]*//')
+        if echo "$npm_v" | grep -q -- "-dev."; then
+          prev=$(echo "$npm_v" | sed 's/.*-dev\.//')
+          prev=${prev:-0}
+          next=$((prev + 1))
+        else
+          next=0
+        fi
+        new_ver="${base}-dev.${next}"
+
+      else
+        echo "new_version=" >> "$GITHUB_OUTPUT"
+        exit 0
+      fi
+
+      echo "new_version=$new_ver" >> "$GITHUB_OUTPUT"

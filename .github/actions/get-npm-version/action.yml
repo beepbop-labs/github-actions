@@ -1,0 +1,37 @@
+name: Get npm version
+description: Get the latest version of a package from npm
+
+inputs:
+  package-name:
+    description: "npm package name"
+    required: true
+  dev-branch:
+    description: "Dev prerelease branch"
+    required: false
+    default: "dev"
+
+outputs:
+  version:
+    description: "Latest version on npm"
+    value: ${{ steps.npm_tag.outputs.npm_v }}
+
+runs:
+  using: composite
+  steps:
+  - name: Get latest npm version
+    id: npm_tag
+    shell: bash
+    env:
+      DEV_BRANCH: ${{ inputs.dev-branch }}
+      PKG_NAME: ${{ inputs.package-name }}
+    run: |
+      branch=${GITHUB_REF##*/}
+
+      if [[ "$branch" == "$DEV_BRANCH" ]]; then
+        suffix="@dev"
+      else
+        suffix=""
+      fi
+
+      latest=$(npm view "${PKG_NAME}$suffix" version 2>/dev/null || echo "0.0.0")
+      echo "npm_v=$latest" >> "$GITHUB_OUTPUT"

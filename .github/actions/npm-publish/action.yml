@@ -1,0 +1,41 @@
+name: npm publish
+description: Publish package to npm
+
+inputs:
+  version:
+    description: "Version to publish"
+    required: true
+  dev-branch:
+    description: "Dev prerelease branch"
+    required: false
+    default: "dev"
+  access:
+    description: "npm publish access level (public or restricted)"
+    required: false
+    default: "public"
+  working-directory:
+    description: "Working directory for the package"
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+  - name: Publish to npm
+    id: publish
+    shell: bash
+    working-directory: ${{ inputs.working-directory }}
+    env:
+      DEV_BRANCH: ${{ inputs.dev-branch }}
+      NEW_VERSION: ${{ inputs.version }}
+      ACCESS: ${{ inputs.access }}
+    run: |
+      npm version "$NEW_VERSION" --no-git-tag-version
+
+      branch=${GITHUB_REF##*/}
+
+      if [[ "$branch" == "$DEV_BRANCH" ]]; then
+        npm publish --tag dev --access "$ACCESS"
+      else
+        npm publish --access "$ACCESS"
+      fi

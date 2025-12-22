@@ -1,4 +1,4 @@
-name: npm-release
+name: npm-release-turborepo
 
 on:
   workflow_call:
@@ -25,6 +25,11 @@ on:
         default: "public"
       package-dir:
         description: "Working directory for the package"
+        type: string
+        required: false
+        default: "."
+      root-dir:
+        description: "Root directory for turborepo build"
         type: string
         required: false
         default: "."
@@ -89,7 +94,7 @@ jobs:
 
       - name: Build
         shell: bash
-        working-directory: ${{ inputs.package-dir }}
+        working-directory: ${{ inputs.root-dir }}
         if: ${{ steps.bump.outputs.version != '' }}
         env:
           BUILD_COMMAND: ${{ inputs.build-command }}
