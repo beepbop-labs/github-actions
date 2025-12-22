@@ -33,6 +33,11 @@ on:
         type: string
         required: false
         default: "."
+      force-publish:
+        description: "Skip change detection and always publish"
+        type: boolean
+        required: false
+        default: false
     secrets:
       npm-token:
         required: true
@@ -98,7 +103,7 @@ jobs:
 
       - name: Check for changes
         id: changes
-        if: ${{ steps.bump.outputs.version != '' }}
+        if: ${{ steps.bump.outputs.version != '' && inputs.force-publish != true }}
         uses: beepbop-labs/github-actions/.github/actions/check-changes@main
         with:
           package-name: ${{ steps.pkg.outputs.name }}
@@ -106,7 +111,7 @@ jobs:
           working-directory: ${{ inputs.package-dir }}
 
       - name: Publish
-        if: ${{ steps.bump.outputs.version != '' && steps.changes.outputs.has-changes == 'true' }}
+        if: ${{ steps.bump.outputs.version != '' && (inputs.force-publish == true || steps.changes.outputs.has-changes == 'true') }}
         uses: beepbop-labs/github-actions/.github/actions/npm-publish@main
         with:
           version: ${{ steps.bump.outputs.version }}

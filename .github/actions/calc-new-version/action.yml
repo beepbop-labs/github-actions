@@ -39,6 +39,12 @@ runs:
       npm_v="$NPM_V"
       level="$BUMP_LEVEL"
 
+      # Validate bump-level
+      if [[ "$level" != "major" && "$level" != "minor" && "$level" != "patch" ]]; then
+        echo "::error::Invalid bump-level '$level'. Must be one of: major, minor, patch"
+        exit 1
+      fi
+
       if [[ -z "$npm_v" || "$npm_v" == "null" ]]; then
         npm_v="0.0.0"
       fi
