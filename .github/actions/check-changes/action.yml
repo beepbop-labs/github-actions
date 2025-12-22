@@ -57,25 +57,21 @@ runs:
 
       # Create a local tarball to get the same files npm would publish
       # bun pm pack outputs to current directory by default
-      if ! bun pm pack > /dev/null 2>&1; then
-        echo "has_changes=true" >> "$GITHUB_OUTPUT"
-        echo "⚠️ bun pm pack failed (bun missing or pack error), assuming changes exist"
-        exit 0
+      if ! bun pm pack; then
+        echo "::error::bun pm pack failed"
+        exit 1
       fi
 
-      # Find the first tgz without failing the script when none exist
+      # Find the tarball
       local_tarball="$(find . -maxdepth 1 -type f -name '*.tgz' -print -quit)"
 
-      if [[ -n "$local_tarball" ]]; then
-        mv "$local_tarball" "$local_tmp/"
-        local_tarball="$local_tmp/$(basename "$local_tarball")"
+      if [[ -z "$local_tarball" ]]; then
+        echo "::error::No tarball created by bun pm pack"
+        exit 1
       fi
 
-      if [[ -z "$local_tarball" ]]; then
-        echo "has_changes=true" >> "$GITHUB_OUTPUT"
-        echo "⚠️ Could not create local tarball, assuming changes exist"
-        exit 0
-      fi
+      mv "$local_tarball" "$local_tmp/"
+      local_tarball="$local_tmp/$(basename "$local_tarball")"
 
       tar -xzf "$local_tarball" -C "$local_tmp"
       local_dir="$local_tmp/package"
