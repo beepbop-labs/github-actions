@@ -32,6 +32,9 @@ on:
         type: string
         required: false
         default: "."
+    secrets:
+      npm-token:
+        required: true
     outputs:
       new-version:
         description: "New version published"
