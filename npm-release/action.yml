@@ -18,7 +18,7 @@ inputs:
     required: false
     default: "dev"
   access:
-    description: "npm publish access level (public or private)"
+    description: "npm publish access level (public or restricted)"
     required: false
     default: "public"
 
