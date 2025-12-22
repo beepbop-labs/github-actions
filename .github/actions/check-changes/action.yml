@@ -1,0 +1,93 @@
+name: Check for changes
+description: Compare local build with published npm package to detect changes
+
+inputs:
+  package-name:
+    description: "npm package name"
+    required: true
+  npm-version:
+    description: "Current npm version to compare against"
+    required: true
+  working-directory:
+    description: "Working directory for the package"
+    required: false
+    default: "."
+
+outputs:
+  has-changes:
+    description: "Whether there are changes to publish"
+    value: ${{ steps.compare.outputs.has_changes }}
+
+runs:
+  using: composite
+  steps:
+  - name: Compare with published package
+    id: compare
+    shell: bash
+    working-directory: ${{ inputs.working-directory }}
+    env:
+      PKG_NAME: ${{ inputs.package-name }}
+      NPM_VERSION: ${{ inputs.npm-version }}
+    run: |
+      # If no version exists on npm, we have changes
+      if [[ -z "$NPM_VERSION" || "$NPM_VERSION" == "0.0.0" || "$NPM_VERSION" == "null" ]]; then
+        echo "No existing version on npm, publishing required"
+        echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        exit 0
+      fi
+
+      # Create temp directories
+      tmp_dir=$(mktemp -d)
+      local_tmp=$(mktemp -d)
+      trap "rm -rf $tmp_dir $local_tmp" EXIT
+
+      # Download the published package tarball
+      tarball_url=$(curl -s "https://registry.npmjs.org/${PKG_NAME}/${NPM_VERSION}" | jq -r '.dist.tarball')
+
+      if [[ -z "$tarball_url" || "$tarball_url" == "null" ]]; then
+        echo "Could not fetch tarball URL, assuming changes exist"
+        echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        exit 0
+      fi
+
+      curl -sL "$tarball_url" -o "$tmp_dir/package.tgz"
+      tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"
+
+      published_dir="$tmp_dir/package"
+
+      # Create a local tarball to get the same files npm would publish
+      # bun pm pack outputs to current directory by default
+      bun pm pack > /dev/null 2>&1
+      local_tarball=$(ls ./*.tgz 2>/dev/null | head -1)
+
+      if [[ -n "$local_tarball" ]]; then
+        mv "$local_tarball" "$local_tmp/"
+        local_tarball="$local_tmp/$(basename "$local_tarball")"
+      fi
+
+      if [[ -z "$local_tarball" ]]; then
+        echo "Could not create local tarball, assuming changes exist"
+        echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        exit 0
+      fi
+
+      tar -xzf "$local_tarball" -C "$local_tmp"
+      local_dir="$local_tmp/package"
+
+      # Normalize package.json by removing version field for comparison
+      jq 'del(.version)' "$published_dir/package.json" > "$tmp_dir/published_pkg.json"
+      jq 'del(.version)' "$local_dir/package.json" > "$tmp_dir/local_pkg.json"
+
+      # Replace package.json with normalized versions
+      mv "$tmp_dir/published_pkg.json" "$published_dir/package.json"
+      mv "$tmp_dir/local_pkg.json" "$local_dir/package.json"
+
+      # Compare all files
+      if diff -rq "$local_dir" "$published_dir" > /dev/null 2>&1; then
+        echo "No changes detected"
+        echo "has_changes=false" >> "$GITHUB_OUTPUT"
+      else
+        echo "Changes detected:"
+        diff -rq "$local_dir" "$published_dir" || true
+        echo "has_changes=true" >> "$GITHUB_OUTPUT"
+      fi

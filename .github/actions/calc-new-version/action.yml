@@ -5,6 +5,10 @@ inputs:
   npm-version:
     description: "Current npm version"
     required: true
+  bump-level:
+    description: "Version bump level (major, minor, patch)"
+    required: false
+    default: "patch"
   main-branch:
     description: "Main release branch"
     required: false
@@ -29,22 +33,17 @@ runs:
       MAIN_BRANCH: ${{ inputs.main-branch }}
       DEV_BRANCH: ${{ inputs.dev-branch }}
       NPM_V: ${{ inputs.npm-version }}
+      BUMP_LEVEL: ${{ inputs.bump-level }}
     run: |
       branch=${GITHUB_REF##*/}
       npm_v="$NPM_V"
+      level="$BUMP_LEVEL"
 
       if [[ -z "$npm_v" || "$npm_v" == "null" ]]; then
         npm_v="0.0.0"
       fi
 
       if [[ "$branch" == "$MAIN_BRANCH" ]]; then
-        if git log HEAD~10..HEAD --pretty=%B | grep -qE '!:|BREAKING CHANGE'; then
-          level=major
-        elif git log HEAD~10..HEAD --pretty=%s | grep -q '^feat'; then
-          level=minor
-        else
-          level=patch
-        fi
         new_ver=$(bunx semver -i "$level" "$npm_v")
 
       elif [[ "$branch" == "$DEV_BRANCH" ]]; then

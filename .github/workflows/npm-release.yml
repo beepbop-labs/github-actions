@@ -8,6 +8,11 @@ on:
         type: string
         required: false
         default: "build"
+      bump-level:
+        description: "Version bump level (major, minor, patch)"
+        type: string
+        required: false
+        default: "patch"
       main-branch:
         description: "Main release branch"
         type: string
@@ -77,6 +82,7 @@ jobs:
         uses: beepbop-labs/github-actions/.github/actions/calc-new-version@main
         with:
           npm-version: ${{ steps.npm_tag.outputs.version }}
+          bump-level: ${{ inputs.bump-level }}
           main-branch: ${{ inputs.main-branch }}
           dev-branch: ${{ inputs.dev-branch }}
 
@@ -90,8 +96,17 @@ jobs:
           bun install
           bun run "$BUILD_COMMAND"
 
-      - name: Publish
+      - name: Check for changes
+        id: changes
         if: ${{ steps.bump.outputs.version != '' }}
+        uses: beepbop-labs/github-actions/.github/actions/check-changes@main
+        with:
+          package-name: ${{ steps.pkg.outputs.name }}
+          npm-version: ${{ steps.npm_tag.outputs.version }}
+          working-directory: ${{ inputs.package-dir }}
+
+      - name: Publish
+        if: ${{ steps.bump.outputs.version != '' && steps.changes.outputs.has-changes == 'true' }}
         uses: beepbop-labs/github-actions/.github/actions/npm-publish@main
         with:
           version: ${{ steps.bump.outputs.version }}
