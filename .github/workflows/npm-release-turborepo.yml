@@ -66,11 +66,13 @@ jobs:
       NPM_CONFIG_TOKEN: ${{ secrets.npm-token }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: oven-sh/setup-bun@v2
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Read package.json
         id: pkg
@@ -106,6 +108,7 @@ jobs:
         run: |
           bun install
           bun run "$BUILD_COMMAND"
+          echo "✅ Build complete"
 
       - name: Check for changes
         id: changes
