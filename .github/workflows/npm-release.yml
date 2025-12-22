@@ -74,14 +74,14 @@ jobs:
 
       - name: Get latest npm version
         id: npm_tag
-        uses: ./.github/actions/get-npm-version
+        uses: beepbop-labs/github-actions/.github/actions/get-npm-version
         with:
           package-name: ${{ steps.pkg.outputs.name }}
           dev-branch: ${{ inputs.dev-branch }}
 
       - name: Determine new version
         id: bump
-        uses: ./.github/actions/calc-new-version
+        uses: beepbop-labs/github-actions/.github/actions/calc-new-version
         with:
           npm-version: ${{ steps.npm_tag.outputs.version }}
           main-branch: ${{ inputs.main-branch }}
@@ -99,7 +99,7 @@ jobs:
 
       - name: Publish
         if: ${{ steps.bump.outputs.version != '' }}
-        uses: ./.github/actions/npm-publish
+        uses: beepbop-labs/github-actions/.github/actions/npm-publish
         with:
           version: ${{ steps.bump.outputs.version }}
           dev-branch: ${{ inputs.dev-branch }}
