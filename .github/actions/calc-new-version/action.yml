@@ -45,7 +45,7 @@ runs:
         else
           level=patch
         fi
-        new_ver=$(npx semver -i "$level" "$npm_v")
+        new_ver=$(bunx semver -i "$level" "$npm_v")
 
       elif [[ "$branch" == "$DEV_BRANCH" ]]; then
         base=$(echo "$npm_v" | sed 's/-dev\.[0-9]*//')

@@ -21,21 +21,24 @@ inputs:
 runs:
   using: composite
   steps:
-  - name: Publish to npm
-    id: publish
+  - name: Publish to npm (bun)
     shell: bash
     working-directory: ${{ inputs.working-directory }}
     env:
       DEV_BRANCH: ${{ inputs.dev-branch }}
       NEW_VERSION: ${{ inputs.version }}
       ACCESS: ${{ inputs.access }}
+      # bun publish reads this (or .npmrc)
+      NPM_CONFIG_TOKEN: ${{ env.NPM_CONFIG_TOKEN }}
     run: |
-      npm version "$NEW_VERSION" --no-git-tag-version
+      # bump version WITHOUT npm (avoids workspace:* parsing)
+      tmp="$(mktemp)"
+      jq --arg v "$NEW_VERSION" '.version=$v' package.json > "$tmp" && mv "$tmp" package.json
 
       branch=${GITHUB_REF##*/}
 
       if [[ "$branch" == "$DEV_BRANCH" ]]; then
-        npm publish --tag dev --access "$ACCESS"
+        bun publish --tag dev --access "$ACCESS"
       else
-        npm publish --access "$ACCESS"
+        bun publish --access "$ACCESS"
       fi

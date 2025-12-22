@@ -47,24 +47,15 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new-version: ${{ steps.bump.outputs.version }}
+    env:
+      NPM_CONFIG_TOKEN: ${{ secrets.npm-token }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-
       - uses: oven-sh/setup-bun@v2
-
-      - name: Configure npm token
-        shell: bash
-        env:
-          NPM_TOKEN: ${{ secrets.npm-token }}
-        run: |
-          npm config set //registry.npmjs.org/:_authToken="$NPM_TOKEN"
 
       - name: Read package.json
         id: pkg
