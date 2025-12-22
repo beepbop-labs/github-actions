@@ -21,6 +21,10 @@ inputs:
     description: "npm publish access level (public or restricted)"
     required: false
     default: "public"
+  working-dir:
+    description: "Working directory for the package (for monorepos)"
+    required: false
+    default: "."
 
 outputs:
   new-version:
@@ -51,6 +55,7 @@ runs:
   - name: Read package.json
     id: pkg
     shell: bash
+    working-directory: ${{ inputs.working-dir }}
     run: |
       name=$(jq -r .name package.json)
       echo "name=$name" >> "$GITHUB_OUTPUT"
@@ -118,6 +123,7 @@ runs:
 
   - name: Build and publish
     shell: bash
+    working-directory: ${{ inputs.working-dir }}
     if: ${{ steps.bump.outputs.new_version != '' }}
     env:
       BUILD_SCRIPT: ${{ inputs.build-script }}
