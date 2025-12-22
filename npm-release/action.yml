@@ -17,6 +17,10 @@ inputs:
     description: "Dev prerelease branch"
     required: false
     default: "dev"
+  access:
+    description: "npm publish access level (public or private)"
+    required: false
+    default: "public"
 
 outputs:
   new-version:
@@ -119,6 +123,7 @@ runs:
       BUILD_SCRIPT: ${{ inputs.build-script }}
       DEV_BRANCH: ${{ inputs.dev-branch }}
       NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+      ACCESS: ${{ inputs.access }}
     run: |
       npm install
       npm run "$BUILD_SCRIPT"
@@ -127,7 +132,7 @@ runs:
       branch=${GITHUB_REF##*/}
 
       if [[ "$branch" == "$DEV_BRANCH" ]]; then
-        npm publish --tag dev --access public
+        npm publish --tag dev --access "$ACCESS"
       else
-        npm publish --access public
+        npm publish --access "$ACCESS"
       fi
