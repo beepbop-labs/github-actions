@@ -36,13 +36,19 @@ runs:
         exit 0
       fi
 
+      # Build curl args (add auth header if NPM_CONFIG_TOKEN is set for restricted packages)
+      curl_args=(-s)
+      if [[ -n "$NPM_CONFIG_TOKEN" ]]; then
+        curl_args+=(-H "Authorization: Bearer ${NPM_CONFIG_TOKEN}")
+      fi
+
       # Create temp directories
       tmp_dir=$(mktemp -d)
       local_tmp=$(mktemp -d)
       trap "rm -rf $tmp_dir $local_tmp" EXIT
 
       # Download the published package tarball
-      tarball_url=$(curl -s "https://registry.npmjs.org/${PKG_NAME}/${NPM_VERSION}" | jq -r '.dist.tarball')
+      tarball_url=$(curl "${curl_args[@]}" "https://registry.npmjs.org/${PKG_NAME}/${NPM_VERSION}" | jq -r '.dist.tarball')
 
       if [[ -z "$tarball_url" || "$tarball_url" == "null" ]]; then
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
@@ -50,7 +56,7 @@ runs:
         exit 0
       fi
 
-      curl -sL "$tarball_url" -o "$tmp_dir/package.tgz"
+      curl "${curl_args[@]}" -L "$tarball_url" -o "$tmp_dir/package.tgz"
       tar -xzf "$tmp_dir/package.tgz" -C "$tmp_dir"
 
       published_dir="$tmp_dir/package"
