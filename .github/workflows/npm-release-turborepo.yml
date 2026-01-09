@@ -106,7 +106,7 @@ jobs:
         env:
           BUILD_COMMAND: ${{ inputs.build-command }}
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --no-progress --verbose
           bun run "$BUILD_COMMAND"
           echo "✅ Build complete"
 
