@@ -29,7 +29,7 @@ runs:
       NEW_VERSION: ${{ inputs.version }}
       ACCESS: ${{ inputs.access }}
       # bun publish reads this (or .npmrc)
-      NPM_CONFIG_TOKEN: ${{ env.NPM_CONFIG_TOKEN }}
+      NPM_TOKEN: ${{ env.NPM_TOKEN }}
     run: |
       # bump version WITHOUT npm (avoids workspace:* parsing)
       tmp="$(mktemp)"

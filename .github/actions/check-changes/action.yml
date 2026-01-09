@@ -36,10 +36,10 @@ runs:
         exit 0
       fi
 
-      # Build curl args (add auth header if NPM_CONFIG_TOKEN is set for restricted packages)
+      # Build curl args (add auth header if NPM_TOKEN is set for restricted packages)
       curl_args=(-s)
-      if [[ -n "$NPM_CONFIG_TOKEN" ]]; then
-        curl_args+=(-H "Authorization: Bearer ${NPM_CONFIG_TOKEN}")
+      if [[ -n "$NPM_TOKEN" ]]; then
+        curl_args+=(-H "Authorization: Bearer ${NPM_TOKEN}")
       fi
 
       # Create temp directories
