@@ -55,6 +55,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     outputs:
       new-version: ${{ steps.bump.outputs.version }}
     env:
