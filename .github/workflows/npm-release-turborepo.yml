@@ -65,6 +65,7 @@ jobs:
       new-version: ${{ steps.bump.outputs.version }}
     env:
       NPM_TOKEN: ${{ secrets.npm-token }}
+      NPM_CONFIG_TOKEN: ${{ secrets.npm-token }}
 
     steps:
       - name: Checkout

@@ -28,8 +28,7 @@ runs:
       DEV_BRANCH: ${{ inputs.dev-branch }}
       NEW_VERSION: ${{ inputs.version }}
       ACCESS: ${{ inputs.access }}
-      # bun publish reads this (or .npmrc)
-      NPM_TOKEN: ${{ env.NPM_TOKEN }}
+
     run: |
       # bump version WITHOUT npm (avoids workspace:* parsing)
       tmp="$(mktemp)"
