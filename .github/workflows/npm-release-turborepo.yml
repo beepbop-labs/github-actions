@@ -107,9 +107,10 @@ jobs:
         if: ${{ steps.bump.outputs.version != '' }}
         env:
           BUILD_COMMAND: ${{ inputs.build-command }}
+          PACKAGE_NAME: ${{ steps.pkg.outputs.name }}
         run: |
           bun install --frozen-lockfile
-          bun run "$BUILD_COMMAND"
+          bunx turbo run "$BUILD_COMMAND" --filter="$PACKAGE_NAME..."
           echo "✅ Build complete"
 
       - name: Check for changes
