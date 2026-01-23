@@ -80,6 +80,11 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "📦 Package: $name"
 
+      - name: Verify npm dependencies
+        uses: beepbop-labs/github-actions/.github/workflows/validate-npm-deps@main
+        with:
+          working-directory: ${{ inputs.package-dir }}
+
       - name: Get latest npm version
         id: npm_tag
         uses: beepbop-labs/github-actions/.github/actions/get-npm-version@main

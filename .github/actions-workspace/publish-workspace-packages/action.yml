@@ -1,0 +1,93 @@
+name: Publish Workspace Packages
+description: Publish multiple workspace packages in dependency order
+
+inputs:
+  packages:
+    description: "Comma-separated list of packages in publishing order"
+    required: true
+  bump-level:
+    description: "Version bump level (major, minor, patch)"
+    required: false
+    default: "patch"
+  force-publish:
+    description: "Skip change detection and always publish"
+    type: boolean
+    required: false
+    default: false
+
+outputs:
+  published:
+    description: "Comma-separated list of packages that were successfully published"
+    value: ${{ steps.publish.outputs.published }}
+
+runs:
+  using: composite
+  steps:
+    - name: Publish packages sequentially
+      id: publish
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        BUMP_LEVEL: ${{ inputs.bump-level }}
+        MAIN_BRANCH: ${{ inputs.main-branch || 'main' }}
+        DEV_BRANCH: ${{ inputs.dev-branch || 'dev' }}
+        ACCESS: ${{ inputs.access || 'public' }}
+      run: |
+        # Parse packages
+        IFS=',' read -ra PACKAGE_ARRAY <<< "$PACKAGES"
+
+        published_packages=""
+
+        for package in "${PACKAGE_ARRAY[@]}"; do
+          echo "🚀 Publishing $package..."
+
+          # Get package name
+          pkg_name=$(cd "packages/$package" && jq -r .name package.json)
+          echo "📦 Package: $pkg_name"
+
+          # Get current npm version using existing action
+          current_version=$(curl -s "https://registry.npmjs.org/$pkg_name" | jq -r '.["dist-tags"].latest // "0.0.0"')
+          echo "📊 Current npm version: $current_version"
+
+          # Calculate new version using existing action logic
+          if [ "$current_version" = "0.0.0" ]; then
+            new_version="0.0.1"
+          else
+            # Version bumping logic (matches calc-new-version action)
+            IFS='.' read -ra VERSION_PARTS <<< "$current_version"
+            case "$BUMP_LEVEL" in
+              "major")
+                new_version="$((VERSION_PARTS[0] + 1)).0.0"
+                ;;
+              "minor")
+                new_version="${VERSION_PARTS[0]}.$((VERSION_PARTS[1] + 1)).0"
+                ;;
+              "patch"|*)
+                new_version="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$((VERSION_PARTS[2] + 1))"
+                ;;
+            esac
+          fi
+
+          echo "📈 Version: $current_version → $new_version"
+
+          # Publish using existing npm-publish action logic
+          cd "packages/$package"
+          tmp=$(mktemp)
+          jq --arg v "$new_version" '.version=$v' package.json > "$tmp" && mv "$tmp" package.json
+
+          branch=${GITHUB_REF##*/}
+          if [[ "$branch" == "$DEV_BRANCH" ]]; then
+            bun publish --tag dev --access "$ACCESS"
+            echo "✅ Published $pkg_name@$new_version (dev)"
+          else
+            bun publish --access "$ACCESS"
+            echo "✅ Published $pkg_name@$new_version (latest)"
+          fi
+
+          published_packages="${published_packages:+$published_packages,}$package"
+          cd ../..
+
+        done
+
+        echo "published=$published_packages" >> "$GITHUB_OUTPUT"
+        echo "🎉 Successfully published: $published_packages"

@@ -1,0 +1,94 @@
+name: npm-release-turborepo
+
+on:
+  workflow_call:
+    inputs:
+      build-command:
+        description: "npm script to run before publishing"
+        type: string
+        required: false
+        default: "build"
+      bump-level:
+        description: "Version bump level (major, minor, patch)"
+        type: string
+        required: false
+        default: "patch"
+      main-branch:
+        description: "Main release branch"
+        type: string
+        required: false
+        default: "main"
+      dev-branch:
+        description: "Dev prerelease branch"
+        type: string
+        required: false
+        default: "dev"
+      access:
+        description: "npm publish access level (public or restricted)"
+        type: string
+        required: false
+        default: "public"
+      package-dir:
+        description: "Working directory for the package"
+        type: string
+        required: false
+        default: "."
+      root-dir:
+        description: "Root directory for turborepo build"
+        type: string
+        required: false
+        default: "."
+      force-publish:
+        description: "Skip change detection and always publish"
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      npm-token:
+        required: true
+    outputs:
+      new-version:
+        description: "New version published"
+        value: ${{ jobs.release.outputs.new-version }}
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      new-version: ${{ steps.run.outputs.new-version }}
+    env:
+      NPM_TOKEN: ${{ secrets.npm-token }}
+      NPM_CONFIG_TOKEN: ${{ secrets.npm-token }}
+      INPUT_BUILD_COMMAND: ${{ inputs.build-command }}
+      INPUT_BUMP_LEVEL: ${{ inputs.bump-level }}
+      INPUT_MAIN_BRANCH: ${{ inputs.main-branch }}
+      INPUT_DEV_BRANCH: ${{ inputs.dev-branch }}
+      INPUT_ACCESS: ${{ inputs.access }}
+      INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+      INPUT_ROOT_DIR: ${{ inputs.root-dir }}
+      INPUT_FORCE_PUBLISH: ${{ inputs.force-publish }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install workflow dependencies
+        run: |
+          cd .github/workflows-ts
+          bun install
+
+      - name: Run npm-release-turborepo workflow
+        id: run
+        run: bun run .github/workflows-ts/src/npm-release-turborepo.ts

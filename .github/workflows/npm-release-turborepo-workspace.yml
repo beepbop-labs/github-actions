@@ -1,0 +1,155 @@
+name: npm-release-turborepo-workspace
+
+on:
+  workflow_call:
+    inputs:
+      build-command:
+        description: "npm script to run before publishing"
+        type: string
+        required: false
+        default: "build"
+      bump-level:
+        description: "Version bump level (major, minor, patch)"
+        type: string
+        required: false
+        default: "patch"
+      main-branch:
+        description: "Main release branch"
+        type: string
+        required: false
+        default: "main"
+      dev-branch:
+        description: "Dev prerelease branch"
+        type: string
+        required: false
+        default: "dev"
+      access:
+        description: "npm publish access level (public or restricted)"
+        type: string
+        required: false
+        default: "public"
+      package-dir:
+        description: "Working directory for the package"
+        type: string
+        required: false
+        default: "."
+      root-dir:
+        description: "Root directory for turborepo"
+        type: string
+        required: false
+        default: "."
+      force-publish:
+        description: "Skip change detection and always publish"
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      npm-token:
+        required: true
+    outputs:
+      published-packages:
+        description: "List of packages that were published"
+        value: ${{ jobs.release.outputs.published-packages }}
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      published-packages: ${{ steps.publish.outputs.published }}
+    env:
+      NPM_TOKEN: ${{ secrets.npm-token }}
+      NPM_CONFIG_TOKEN: ${{ secrets.npm-token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Read workspace packages
+        id: workspace-packages
+        shell: bash
+        working-directory: ${{ inputs.root-dir }}
+        run: |
+          # Get all packages in the workspace
+          workspace_packages=""
+          for dir in packages/*; do
+            if [ -d "$dir" ]; then
+              package_name=$(basename "$dir")
+              workspace_packages="${workspace_packages:+$workspace_packages,}$package_name"
+            fi
+          done
+          echo "packages=$workspace_packages" >> "$GITHUB_OUTPUT"
+          echo "📦 Workspace packages: $workspace_packages"
+
+      - name: Detect changed packages
+        id: changed-packages
+        run: |
+          # Get list of workspace packages that have changes
+          IFS=',' read -ra WORKSPACE_PACKAGES <<< "${{ steps.workspace-packages.outputs.packages }}"
+          changed_packages=""
+          for package in "${WORKSPACE_PACKAGES[@]}"; do
+            if git diff --name-only HEAD~1 | grep -q "^packages/$package/"; then
+              changed_packages="${changed_packages:+$changed_packages,}$package"
+            fi
+          done
+          echo "packages=$changed_packages" >> "$GITHUB_OUTPUT"
+          echo "📦 Changed packages: $changed_packages"
+
+      - name: Filter npm-publishable packages
+        id: npm-packages
+        run: |
+          # Filter packages that have "npm": true in package.json
+          IFS=',' read -ra CHANGED_PACKAGES <<< "${{ steps.changed-packages.outputs.packages }}"
+          npm_packages=""
+          for package in "${CHANGED_PACKAGES[@]}"; do
+            if [ -f "packages/$package/package.json" ]; then
+              npm_field=$(jq -r '.npm // false' "packages/$package/package.json")
+              if [ "$npm_field" = "true" ]; then
+                npm_packages="${npm_packages:+$npm_packages,}$package"
+              fi
+            fi
+          done
+          echo "packages=$npm_packages" >> "$GITHUB_OUTPUT"
+          echo "📦 NPM-publishable packages: $npm_packages"
+
+      - name: Resolve workspace dependencies
+        id: final-packages
+        uses: beepbop-labs/github-actions/.github/actions-workspace/resolve-workspace-deps@main
+        with:
+          packages: ${{ steps.npm-packages.outputs.packages }}
+
+      - name: Build packages
+        working-directory: ${{ inputs.root-dir }}
+        if: steps.final-packages.outputs.packages != ''
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+          PACKAGES: ${{ steps.final-packages.outputs.packages }}
+        run: |
+          # Build only the packages that will be published
+          filter=""
+          IFS=',' read -ra PACKAGE_ARRAY <<< "$PACKAGES"
+          for package in "${PACKAGE_ARRAY[@]}"; do
+            filter="${filter:+$filter }--filter=$package..."
+          done
+          bun install --frozen-lockfile
+          bunx turbo run "$BUILD_COMMAND" $filter
+          echo "✅ Build complete"
+
+      - name: Publish packages sequentially
+        id: publish
+        if: steps.final-packages.outputs.packages != ''
+        uses: beepbop-labs/github-actions/.github/actions-workspace/publish-workspace-packages@main
+        with:
+          packages: ${{ steps.final-packages.outputs.packages }}
+          bump-level: ${{ inputs.bump-level }}
