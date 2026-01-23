@@ -82,6 +82,7 @@ const run = async ({ inputs }: T_RunWorkspacePublish): Promise<void> => {
   const published = await WorkspaceService.publishBatches({
     batches: orderedBatches,
     inputs,
+    allPkgs: pkgs,
   });
 
   console.log(`🚀 Published ${published.length} packages: ${published.map((p) => p.name).join(", ")}`);

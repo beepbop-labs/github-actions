@@ -197,9 +197,10 @@ type T_PublishedPackage = {
 type T_PublishBatches = {
   batches: T_Package[][];
   inputs: T_WorkflowInputs;
+  allPkgs: T_Package[];
 };
 
-const publishBatches = async ({ batches, inputs }: T_PublishBatches): Promise<T_PublishedPackage[]> => {
+const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): Promise<T_PublishedPackage[]> => {
   const tag = GitHubGateway.getCurrentTag();
   const published: T_PublishedPackage[] = [];
   const publishedVersions = new Map<string, string>(); // name -> version
@@ -227,7 +228,8 @@ const publishBatches = async ({ batches, inputs }: T_PublishBatches): Promise<T_
             if (deps) {
               for (const [name, val] of Object.entries(deps)) {
                 if (typeof val === "string" && val.includes("workspace:")) {
-                  const oldVersion = deps[name];
+                  const workspacePkg = allPkgs.find((pkg) => pkg.name === name);
+                  const oldVersion = workspacePkg ? workspacePkg.version : "unknown";
                   // 1. Check if it was published in this run (use new version)
                   if (publishedVersions.has(name)) {
                     deps[name] = publishedVersions.get(name)!;
