@@ -1,0 +1,89 @@
+name: npm-publish
+
+on:
+  workflow_call:
+    inputs:
+      root-path:
+        description: "Root path for turborepo workspace (relative to repo root)"
+        type: string
+        required: false
+        default: "."
+      package-path:
+        description: "Package path for the package (relative to root-path)"
+        type: string
+        required: false
+        default: "."
+      bump-level:
+        description: "Version bump level (major, minor, patch)"
+        type: string
+        required: false
+        default: "patch"
+      build-command:
+        description: "npm script to run before publishing"
+        type: string
+        required: false
+        default: "build"
+      access:
+        description: "npm publish access level (public or restricted)"
+        type: string
+        required: false
+        default: "public"
+      force-publish:
+        description: "Skip change detection and always publish"
+        type: boolean
+        required: false
+        default: false
+      route:
+        description: "Workflow route: package, turborepo-package, or turborepo-workspace"
+        type: string
+        required: false
+        default: "package"
+    secrets:
+      npm-token:
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NPM_TOKEN: ${{ secrets.npm-token }}
+      NPM_CONFIG_TOKEN: ${{ secrets.npm-token }}
+      INPUT_BUILD_COMMAND: ${{ inputs.build-command }}
+      INPUT_BUMP_LEVEL: ${{ inputs.bump-level }}
+      INPUT_ACCESS: ${{ inputs.access }}
+      INPUT_ROOT_PATH: ${{ inputs.root-path }}
+      INPUT_PACKAGE_PATH: ${{ inputs.package-path }}
+      INPUT_FORCE_PUBLISH: ${{ inputs.force-publish }}
+      INPUT_ROUTE: ${{ inputs.route }}
+
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: caller
+
+      - name: Checkout actions repo
+        uses: actions/checkout@v4
+        with:
+          repository: beepbop-labs/github-actions-v2
+          path: actions
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install workflow dependencies
+        working-directory: actions/workflows/npm-publish
+        run: bun install --frozen-lockfile
+
+      - name: Run npm-publish workflow
+        id: run
+        working-directory: caller
+        run: bun run ${{ github.workspace }}/actions/workflows/npm-publish/src/index.ts

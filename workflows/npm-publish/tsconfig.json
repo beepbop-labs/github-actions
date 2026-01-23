@@ -1,0 +1,13 @@
+{
+  "extends": "@bb-labs/tsconfigs/lib.json",
+  "compilerOptions": {
+    "types": ["node", "bun-types"],
+
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}
