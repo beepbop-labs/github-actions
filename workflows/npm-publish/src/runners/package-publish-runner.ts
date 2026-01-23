@@ -28,16 +28,8 @@ const run = async ({ inputs }: T_RunPackagePublish): Promise<void> => {
   }
   console.log("✅ All dependencies are valid npm packages");
 
-  // Step 3: Calculate new version
-  GitHubGateway.logStep(3, "Calculate update version");
-  const updateVersion = await PackageService.calcUpdateVersion({
-    currentVersion: pkg.version,
-    bumpLevel: inputs.bumpLevel,
-  });
-  console.log(`📦 Update version: ${updateVersion}`);
-
-  // Step 4: Build
-  GitHubGateway.logStep(4, "Build package");
+  // Step 3: Build
+  GitHubGateway.logStep(3, "Build package");
 
   await PackageService.buildPackages({
     route: inputs.route,
@@ -46,33 +38,46 @@ const run = async ({ inputs }: T_RunPackagePublish): Promise<void> => {
     buildCommand: inputs.buildCommand,
   });
 
-  // Step 5: Check for changes (unless force publish)
-  GitHubGateway.logStep(5, "Check for changes");
+  // Step 4: Check for changes (unless force publish)
+  GitHubGateway.logStep(4, "Check for changes");
 
   let hasChanges = true;
   if (!inputs.forcePublish) {
-    hasChanges = await PackageService.checkChanges({ pkg });
+    hasChanges = (await PackageService.checkChanges({ pkgs: [pkg] })).length > 0;
     if (hasChanges) console.log("✅ Changes detected");
     else console.log("⏭️ No changes detected");
   } else {
     console.log("⏭️ Force publish enabled, skipping check for changes");
   }
 
+  const needsPublishing = inputs.forcePublish || hasChanges;
+
+  // Early return if no publishing needed
+  if (!needsPublishing) {
+    console.log("⏭️ No changes to publish");
+    return;
+  }
+
+  // Step 5: Calculate new version
+  GitHubGateway.logStep(5, "Calculate update version");
+  const updateVersion = await PackageService.calcUpdateVersion({
+    currentVersion: pkg.version,
+    bumpLevel: inputs.bumpLevel,
+  });
+  console.log(`📦 Update version: ${updateVersion}`);
+
   // Step 6: Publish
   GitHubGateway.logStep(6, "Publish to npm");
-  if (inputs.forcePublish || hasChanges) {
-    // Update package.json with new version
-    pkg.json.version = updateVersion;
-    await PackageService.writePackageJson({ pkg });
 
-    // Publish to npm
-    const tag = GitHubGateway.getCurrentTag();
-    await PackageService.publishPackage({ pkg, tag, access: inputs.access });
+  // Update package.json with new version
+  pkg.json.version = updateVersion;
+  await PackageService.writePackageJson({ pkg });
 
-    console.log(`🚀 Published ${pkg.name}@${updateVersion}`);
-  } else {
-    console.log("⏭️ No changes to publish");
-  }
+  // Publish to npm
+  const tag = GitHubGateway.getCurrentTag();
+  await PackageService.publishPackage({ pkg, tag, access: inputs.access });
+
+  console.log(`🚀 Published ${pkg.name}@${updateVersion}`);
 };
 
 export const PackagePublishRunner = {

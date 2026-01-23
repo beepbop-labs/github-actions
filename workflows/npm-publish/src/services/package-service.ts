@@ -68,12 +68,30 @@ const loadPackage = async ({ packagePath, inputs }: T_LoadPackage): Promise<T_Pa
 };
 
 const isValidVersion = ({ version }: { version: string }): boolean => {
+  // Reject protocol-based versions (file:, link:, git:, http:, https:)
   if (/^(file|link|git|http|https):/.test(version)) return false;
+
+  // Accept workspace versions
   if (/^workspace:/.test(version)) return true;
-  if (/^[\^~><=*]?[0-9]+(\.[0-9]+)*(\.[0-9]+)*(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/.test(version)) return true;
-  if (/^(>=|>|<=|<|=)[0-9]+(\.[0-9]+)*(\.[0-9]+)*.*$/.test(version)) return true;
+
+  // Accept common keywords
   if (/^(latest|stable|beta|alpha|next|canary|rc)$/.test(version)) return true;
-  return version === "*";
+
+  // Accept wildcard
+  if (version === "*") return true;
+
+  // More comprehensive semver range pattern
+  // This handles: ^1.0.0, ~1.0.0, >=1.0.0, >1.0.0, <=1.0.0, <1.0.0, =1.0.0
+  // Also handles ranges like: >=1.0.0 <2.0.0, 1.x, 1.0.x, etc.
+  const semverRangePattern =
+    /^[><=^~]*\s*[0-9]+(\.[0-9]+|\.x|\.\*)?(\.[0-9]+|\.x|\.\*)?(\s*[><=^~]*\s*[0-9]+(\.[0-9]+|\.x|\.\*)?(\.[0-9]+|\.x|\.\*)?)*/;
+  if (semverRangePattern.test(version.replace(/\s+/g, ""))) return true;
+
+  // Accept prerelease versions with build metadata
+  const prereleasePattern = /^[0-9]+(\.[0-9]+)*(\.[0-9]+)*(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
+  if (prereleasePattern.test(version)) return true;
+
+  return false;
 };
 
 type T_CalcNewVersion = {
@@ -84,8 +102,10 @@ type T_CalcNewVersion = {
 const calcUpdateVersion = async ({ currentVersion, bumpLevel }: T_CalcNewVersion): Promise<string> => {
   const branch = GitHubGateway.getCurrentBranch();
 
-  // Default to 0.0.0 if no version
-  if (!currentVersion || currentVersion === "null") currentVersion = "0.0.0";
+  // Default to 0.0.0 if no version or invalid version
+  if (!currentVersion || currentVersion === "null" || currentVersion.trim() === "") {
+    currentVersion = "0.0.0";
+  }
 
   if (branch === BRANCH_CONFIG.main) {
     // Use semver.inc() for stable version bumps
@@ -106,7 +126,9 @@ const calcUpdateVersion = async ({ currentVersion, bumpLevel }: T_CalcNewVersion
     } else {
       // Stable version -> bump patch (default safety) and add dev tag
       // 1.0.0 -> 1.0.1-dev.0
-      newVersion = semver.inc(currentVersion, "prerelease", "dev");
+      const bumpedPatch = semver.inc(currentVersion, "patch");
+      if (!bumpedPatch) throw new Error(`Failed to bump patch version ${currentVersion}`);
+      newVersion = semver.inc(bumpedPatch, "prerelease", "dev");
     }
 
     if (!newVersion) throw new Error(`Failed to calculate dev version for ${currentVersion}`);
@@ -116,68 +138,142 @@ const calcUpdateVersion = async ({ currentVersion, bumpLevel }: T_CalcNewVersion
   throw new Error(`Branch '${branch}' is not main or dev`);
 };
 
-type T_CheckChanges = {
+type T_CreateTarball = {
   pkg: T_Package;
+  tmpDir: string;
 };
 
-const checkChanges = async ({ pkg }: T_CheckChanges): Promise<boolean> => {
-  // If no version on npm, strictly has changes (first publish)
-  if (pkg.version === "0.0.0" || !pkg.tarballUrl) return true;
+const createNpmTarball = async ({ pkg, tmpDir }: T_CreateTarball): Promise<void> => {
+  // Download published tarball using streaming to avoid loading large files into memory
+  const headers = NpmGateway.getHeaders();
+  const res = await fetch(pkg.tarballUrl!, { headers });
 
-  // Temp dirs
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "npm-compare-"));
-  const localTmp = await fs.mkdtemp(path.join(os.tmpdir(), "local-pack-"));
+  if (!res.ok) {
+    throw new Error(`Failed to download tarball from ${pkg.tarballUrl}: ${res.status} ${res.statusText}`);
+  }
 
-  try {
-    // Download published
-    const headers = NpmGateway.getHeaders();
-    const res = await fetch(pkg.tarballUrl, { headers });
-    await Bun.write(path.join(tmpDir, "package.tgz"), await res.arrayBuffer());
-    await GitHubGateway.execute({
-      command: `tar -xzf "${path.join(tmpDir, "package.tgz")}" -C "${tmpDir}"`,
-      options: { silent: true },
-    });
+  if (!res.body) {
+    throw new Error(`No response body received for tarball download from ${pkg.tarballUrl}`);
+  }
 
-    // Create local
-    await GitHubGateway.execute({
-      command: "bun pm pack",
-      options: { cwd: pkg.path, silent: true },
-    });
-    const findRes = await GitHubGateway.execute({
+  // Stream the download to file instead of loading into memory
+  const tarballPath = path.join(tmpDir, "package.tgz");
+  const file = Bun.file(tarballPath);
+  await Bun.write(file, res);
+
+  await GitHubGateway.execute({
+    command: `tar -xzf "${tarballPath}" -C "${tmpDir}"`,
+    options: { silent: true },
+  });
+};
+
+const createLocalTarball = async ({ pkg, tmpDir }: T_CreateTarball): Promise<void> => {
+  // Create local tarball
+  await GitHubGateway.execute({
+    command: "bun pm pack",
+    options: { cwd: pkg.path, silent: true },
+  });
+
+  // Find the newly created tarball (bun pm pack creates a tarball named after the package)
+  const findRes = await GitHubGateway.execute({
+    command: "find . -maxdepth 1 -type f -name '*.tgz' -newer package.json -print -quit",
+    options: { cwd: pkg.path, silent: true },
+  });
+  let localTarball = findRes.stdout.trim();
+
+  // Fallback: if no newer tarball found, get any tgz file (should be the one we just created)
+  if (!localTarball) {
+    const fallbackRes = await GitHubGateway.execute({
       command: "find . -maxdepth 1 -type f -name '*.tgz' -print -quit",
       options: { cwd: pkg.path, silent: true },
     });
-    const localTarball = findRes.stdout.trim();
-
-    if (!localTarball) throw new Error("Bun pm pack failed to create tarball");
-
-    await fs.rename(path.join(pkg.path, localTarball), path.join(localTmp, path.basename(localTarball)));
-    await GitHubGateway.execute({
-      command: `tar -xzf "${path.join(localTmp, path.basename(localTarball))}" -C "${localTmp}"`,
-      options: { silent: true },
-    });
-
-    // Compare (removing version)
-    const pubPkgPath = path.join(tmpDir, "package", "package.json");
-    const locPkgPath = path.join(localTmp, "package", "package.json");
-
-    const pubPkg = JSON.parse(await fs.readFile(pubPkgPath, "utf-8"));
-    const locPkg = JSON.parse(await fs.readFile(locPkgPath, "utf-8"));
-    delete pubPkg.version;
-    delete locPkg.version;
-    await fs.writeFile(pubPkgPath, JSON.stringify(pubPkg, null, 2));
-    await fs.writeFile(locPkgPath, JSON.stringify(locPkg, null, 2));
-
-    const diff = await GitHubGateway.execute({
-      command: `diff -rq "${path.join(localTmp, "package")}" "${path.join(tmpDir, "package")}"`,
-      options: { silent: true, throwOnError: false },
-    });
-
-    return diff.exitCode !== 0;
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-    await fs.rm(localTmp, { recursive: true, force: true });
+    localTarball = fallbackRes.stdout.trim();
   }
+
+  if (!localTarball) throw new Error("Bun pm pack failed to create tarball");
+
+  const tarballPath = localTarball.startsWith("./") ? localTarball : `./${localTarball}`;
+  await fs.rename(path.join(pkg.path, tarballPath), path.join(tmpDir, path.basename(localTarball)));
+  await GitHubGateway.execute({
+    command: `tar -xzf "${path.join(tmpDir, path.basename(localTarball))}" -C "${tmpDir}"`,
+    options: { silent: true },
+  });
+
+  // Clean up the tarball from the package directory
+  try {
+    await fs.unlink(path.join(pkg.path, tarballPath));
+  } catch (error) {
+    // Ignore cleanup errors - the tarball might already be moved
+  }
+};
+
+type T_CheckChanges = {
+  pkgs: T_Package[];
+};
+
+const checkChanges = async ({ pkgs }: T_CheckChanges): Promise<T_Package[]> => {
+  const results = await Promise.all(
+    pkgs.map(async (pkg: T_Package) => {
+      // If no version on npm, strictly has changes (first publish)
+      if (pkg.version === "0.0.0" || !pkg.tarballUrl) return pkg;
+
+      // Create temp directories in parallel for better performance
+      const [npmTmpDir, localTmpDir] = await Promise.all([
+        fs.mkdtemp(path.join(os.tmpdir(), "npm-")),
+        fs.mkdtemp(path.join(os.tmpdir(), "local-")),
+      ]);
+
+      try {
+        // Create npm and local tarballs in parallel
+        await Promise.all([
+          createNpmTarball({ pkg, tmpDir: npmTmpDir }),
+          createLocalTarball({ pkg, tmpDir: localTmpDir }),
+        ]);
+
+        // Compare (removing version) - with parallel processing
+        const pubPkgPath = path.join(npmTmpDir, "package", "package.json");
+        const locPkgPath = path.join(localTmpDir, "package", "package.json");
+
+        // Read both package.json files in parallel
+        const [pubPkgContent, locPkgContent] = await Promise.all([
+          fs.readFile(pubPkgPath, "utf-8"),
+          fs.readFile(locPkgPath, "utf-8"),
+        ]);
+
+        const pubPkg = JSON.parse(pubPkgContent);
+        const locPkg = JSON.parse(locPkgContent);
+
+        // Remove version from both packages
+        delete pubPkg.version;
+        delete locPkg.version;
+
+        // Write both modified package.json files in parallel
+        await Promise.all([
+          fs.writeFile(pubPkgPath, JSON.stringify(pubPkg, null, 2)),
+          fs.writeFile(locPkgPath, JSON.stringify(locPkg, null, 2)),
+        ]);
+
+        // Compare directories
+        const diff = await GitHubGateway.execute({
+          command: `diff -rq "${path.join(localTmpDir, "package")}" "${path.join(npmTmpDir, "package")}"`,
+          options: { silent: true, throwOnError: false },
+        });
+
+        return diff.exitCode !== 0 ? pkg : null;
+      } catch (error) {
+        const errorMessage = `❌ Failed to check changes for ${pkg.name}: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      } finally {
+        await fs.rm(npmTmpDir, { recursive: true, force: true });
+        await fs.rm(localTmpDir, { recursive: true, force: true });
+      }
+    }),
+  );
+
+  return results.filter((pkg): pkg is T_Package => pkg !== null);
 };
 
 type T_WritePackageJson = {

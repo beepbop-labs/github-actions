@@ -11,13 +11,22 @@ type T_LoadAllPackages = {
   inputs: T_WorkflowInputs;
 };
 
-export const loadAllPackages = async ({ rootPath, inputs }: T_LoadAllPackages): Promise<T_Package[]> => {
+const loadAllPackages = async ({ rootPath, inputs }: T_LoadAllPackages): Promise<T_Package[]> => {
   const rootPackageJsonPath = path.join(rootPath, "package.json");
   const rootPackageJson = await fs.readFile(rootPackageJsonPath, "utf8");
   const rootPackage = JSON.parse(rootPackageJson) as { workspaces: string[] };
 
   const workspacesGlobs = rootPackage.workspaces ?? [];
-  const workspacesDirs = workspacesGlobs.map((ws: string) => path.join(rootPath, ws.replace("/*", "")));
+  const workspacesDirs = workspacesGlobs.map((ws: string) => {
+    // Handle different workspace patterns:
+    // - "packages/*" -> "packages"
+    // - "packages" -> "packages"
+    // - "packages/foo" -> "packages/foo"
+    if (ws.endsWith("/*")) {
+      return path.join(rootPath, ws.slice(0, -2)); // Remove "/*"
+    }
+    return path.join(rootPath, ws);
+  });
 
   // Collect full package paths (not just folder names)
   const pkgPaths: string[] = (
@@ -36,50 +45,6 @@ export const loadAllPackages = async ({ rootPath, inputs }: T_LoadAllPackages): 
   );
 
   return pkgs;
-};
-
-type T_GetChangedPackages = {
-  rootPath: string;
-  pkgs: T_Package[];
-};
-
-const getChangedPackages = async ({ rootPath, pkgs }: T_GetChangedPackages): Promise<T_Package[]> => {
-  const baseRef = GitHubGateway.getEnv("GITHUB_BASE_REF");
-  const beforeSha = GitHubGateway.getEnv("GITHUB_BEFORE");
-  let range = "HEAD~1";
-
-  if (baseRef) range = `origin/${baseRef}...HEAD`;
-  else if (beforeSha && beforeSha !== "0000000000000000000000000000000000000000") range = `${beforeSha}...HEAD`;
-
-  console.log(`🔍 Checking changes using range: ${range}`);
-
-  const result = await GitHubGateway.execute({
-    command: `git diff --name-only ${range}`,
-    options: {
-      cwd: rootPath,
-      silent: true,
-      throwOnError: false,
-    },
-  });
-
-  if (result.exitCode !== 0) {
-    console.log("⚠️ Git diff failed, assuming all changed");
-    return pkgs;
-  }
-
-  const changedFiles = result.stdout.split("\n").filter(Boolean);
-  const changed = new Set<T_Package>();
-
-  for (const pkg of pkgs) {
-    // Convert pkg.path (absolute) to repo-relative path for comparison with git diff output
-    const relativePackagePath = path.relative(rootPath, pkg.path);
-
-    if (changedFiles.some((f) => f.startsWith(relativePackagePath + "/") || f === relativePackagePath)) {
-      changed.add(pkg);
-    }
-  }
-
-  return Array.from(changed);
 };
 
 type T_ExpandDependents = {
@@ -109,7 +74,6 @@ const expandDependents = ({ allPkgs, changedPkgs }: T_ExpandDependents): T_Packa
   }
 
   // BFS from changed packages to find all transitive dependents
-  const changedNames = new Set(changedPkgs.map((p) => p.name));
   const expanded = new Set<T_Package>(changedPkgs);
   const queue = [...changedPkgs];
 
@@ -137,7 +101,7 @@ const resolveExecutionBatches = ({ pkgs }: T_ResolveExecutionBatches): T_Package
   // Build a set of package names in our subset for quick lookup
   const pkgNames = new Set(pkgs.map((p) => p.name));
 
-  // Build internal graph for SUBSET of packages
+  // Build internal graph for packages that need publishing
   const dependsOn = new Map<string, string[]>();
   const dependedBy = new Map<string, string[]>();
 
@@ -151,6 +115,7 @@ const resolveExecutionBatches = ({ pkgs }: T_ResolveExecutionBatches): T_Package
 
     for (const dep of pkg.dependencies) {
       if (dep.type === "workspace" && pkgNames.has(dep.name)) {
+        // Only consider dependencies between packages that are being published in this run
         workspaceDeps.push(dep.name);
       }
     }
@@ -205,6 +170,42 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
   const published: T_PublishedPackage[] = [];
   const publishedVersions = new Map<string, string>(); // name -> version
 
+  // Pre-fetch workspace dependency versions to avoid network calls during publishing
+  const workspaceDepsToFetch = new Set<string>();
+  for (const batch of batches) {
+    for (const pkg of batch) {
+      const types = ["dependencies", "devDependencies", "peerDependencies"] as const;
+      for (const t of types) {
+        const deps = pkg.json[t] as Record<string, string> | undefined;
+        if (deps) {
+          for (const [name] of Object.entries(deps)) {
+            if (publishedVersions.has(name)) continue; // Already published in this run
+            const depPkg = allPkgs.find((p) => p.name === name);
+            if (depPkg && deps[name].includes("workspace:")) {
+              workspaceDepsToFetch.add(name);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Fetch external versions in parallel
+  const fetchedVersions = new Map<string, string>();
+  await Promise.all(
+    Array.from(workspaceDepsToFetch).map(async (name) => {
+      try {
+        const info = await NpmGateway.fetchPackageInfo({ packageName: name });
+        if (info.version && info.version !== "0.0.0") {
+          fetchedVersions.set(name, info.version);
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch version for ${name}:`, error);
+        // Continue without this version - it will use existing or fail later if needed
+      }
+    }),
+  );
+
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
     console.log(`\n📦 [Batch ${i + 1}/${batches.length}] Processing: ${batch.map((p) => p.name).join(", ")}`);
@@ -237,7 +238,14 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
                       console.log(`  🔄 Updated ${name}: ${oldVersion} -> ${deps[name]}`);
                     }
                   }
-                  // 2. Fetch from NPM (ensure we point to a published version)
+                  // 2. Use pre-fetched version from NPM
+                  else if (fetchedVersions.has(name)) {
+                    deps[name] = fetchedVersions.get(name)!;
+                    if (oldVersion !== deps[name]) {
+                      console.log(`  🔄 Updated dep ${name}: ${oldVersion} -> ${deps[name]}`);
+                    }
+                  }
+                  // 3. Fallback: try to fetch if not pre-fetched (shouldn't happen but safety net)
                   else {
                     try {
                       const depInfo = await NpmGateway.fetchPackageInfo({ packageName: name });
@@ -286,7 +294,6 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
 
 export const WorkspaceService = {
   loadAllPackages,
-  getChangedPackages,
   expandDependents,
   resolveExecutionBatches,
   publishBatches,

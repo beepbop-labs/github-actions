@@ -1,9 +1,27 @@
 import { BRANCH_CONFIG, DEFAULT_WORKFLOW_INPUTS, type T_WorkflowInputs } from "@/types/inputs";
 import { IS_DEV } from "@/utils/dev";
 import path from "path";
+import fs from "fs/promises";
 
 const getEnv = (name: string, fallback: string = ""): string => {
   return process.env[name] || fallback;
+};
+
+const getBeforeSha = async (): Promise<string | null> => {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!eventPath) return null;
+
+  try {
+    const eventData = JSON.parse(await fs.readFile(eventPath, "utf8"));
+    // For push events, the before SHA is in event.before
+    if (eventData.before) {
+      return eventData.before;
+    }
+  } catch (error) {
+    // Silently fail if we can't read the event data
+  }
+
+  return null;
 };
 
 const logStep = (step: number, title: string): void => {
@@ -97,6 +115,7 @@ const resolveInputs = (): T_WorkflowInputs => {
 
 export const GitHubGateway = {
   getEnv,
+  getBeforeSha,
   logStep,
   getCurrentBranch,
   getCurrentTag,

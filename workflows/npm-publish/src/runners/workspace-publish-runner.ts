@@ -14,39 +14,15 @@ const run = async ({ inputs }: T_RunWorkspacePublish): Promise<void> => {
 
   // Step 1: Load all packages metadata
   GitHubGateway.logStep(1, "Load all packages metadata");
-  const pkgs = await WorkspaceService.loadAllPackages({
+  const allPkgs = await WorkspaceService.loadAllPackages({
     rootPath: inputs.rootPath,
     inputs,
   });
 
-  // Step 2: Detect changed packages
-  GitHubGateway.logStep(2, "Detect changed packages");
-  let changedPkgs: T_Package[];
-  if (inputs.forcePublish) {
-    console.log("🔥 Force publish enabled: including all packages");
-    changedPkgs = pkgs;
-  } else {
-    changedPkgs = await WorkspaceService.getChangedPackages({ rootPath: inputs.rootPath, pkgs });
-  }
-  console.log(`📦 Directly changed packages: ${changedPkgs.map((pkg) => pkg.name).join(", ") || "none"}`);
-  if (changedPkgs.length === 0) {
-    console.log("⏭️ No changed packages, exiting");
-    return;
-  }
-
-  // Step 3: Expand dependent packages
-  GitHubGateway.logStep(3, "Expand dependent packages");
-  const expandedPkgs = WorkspaceService.expandDependents({ allPkgs: pkgs, changedPkgs });
-
-  if (expandedPkgs.length > changedPkgs.length) {
-    console.log(`📦 Expanded package list: ${expandedPkgs.map((pkg) => pkg.name).join(", ") || "none"}`);
-  } else {
-    console.log("📦 No additional dependent packages found");
-  }
-
-  // Step 4: Filter npm-publishable packages
-  GitHubGateway.logStep(4, "Filter npm-publishable packages");
-  const npmPackages = expandedPkgs.filter((pkg) => pkg.hasNpmTag);
+  // Step 2: Filter npm-publishable packages
+  GitHubGateway.logStep(2, "Filter npm-publishable packages");
+  const npmPackages = allPkgs.filter((pkg) => pkg.hasNpmTag);
+  const npmPackageNames = new Set(npmPackages.map((pkg) => pkg.name));
   console.log(`📦 NPM-publishable packages: ${npmPackages.map((pkg) => pkg.name).join(", ") || "none"}`);
 
   if (npmPackages.length === 0) {
@@ -54,35 +30,70 @@ const run = async ({ inputs }: T_RunWorkspacePublish): Promise<void> => {
     return;
   }
 
-  // Step 5: Resolve execution order
-  GitHubGateway.logStep(5, "Resolve workspace execution order");
-  const orderedBatches = WorkspaceService.resolveExecutionBatches({ pkgs: npmPackages });
-
-  orderedBatches.forEach((batch, index) => {
-    console.log(`  Batch ${index + 1}: ${batch.map((pkg) => pkg.name).join(", ")}`);
-  });
-
-  // Step 6: Build packages
-  GitHubGateway.logStep(6, "Build packages");
-
-  const allPublishPackages = orderedBatches.flat();
+  // Step 3: Build packages
+  GitHubGateway.logStep(3, "Build packages");
 
   await PackageService.buildPackages({
     route: inputs.route,
     rootPath: inputs.rootPath,
-    pkgs: allPublishPackages,
+    pkgs: npmPackages,
     buildCommand: inputs.buildCommand,
   });
 
   console.log("✅ Build complete");
 
-  // Step 7: Publish packages in Parallel Batches
-  GitHubGateway.logStep(7, "Publish packages (Parallel Batches)");
+  // Step 4: Check for changes
+  GitHubGateway.logStep(4, "Check for changes");
+
+  let changedPkgs: T_Package[];
+  if (inputs.forcePublish) {
+    console.log("🔥 Force publish enabled: including all packages");
+    changedPkgs = npmPackages;
+  } else {
+    changedPkgs = await PackageService.checkChanges({ pkgs: npmPackages });
+    console.log(`📦 Changed packages: ${changedPkgs.map((pkg) => pkg.name).join(", ") || "none"}`);
+  }
+
+  if (changedPkgs.length === 0) {
+    console.log("⏭️ No changed packages, exiting");
+    return;
+  }
+
+  // Step 5: Expand dependent packages
+  GitHubGateway.logStep(5, "Expand dependent packages");
+  const expandedPkgs = WorkspaceService.expandDependents({ allPkgs, changedPkgs });
+
+  if (expandedPkgs.length > changedPkgs.length) {
+    console.log(`📦 Expanded package list: ${expandedPkgs.map((pkg: T_Package) => pkg.name).join(", ") || "none"}`);
+  } else {
+    console.log("📦 No additional dependent packages found");
+  }
+
+  // Step 6: Filter npm-publishable packages (use the pre-computed set for efficiency)
+  GitHubGateway.logStep(6, "Filter npm-publishable packages");
+  const publishPkgs = expandedPkgs.filter((pkg) => npmPackageNames.has(pkg.name));
+  console.log(`📦 Final packages to publish: ${publishPkgs.map((pkg: T_Package) => pkg.name).join(", ") || "none"}`);
+
+  if (publishPkgs.length === 0) {
+    console.log("⏭️ No npm-publishable packages to publish, exiting");
+    return;
+  }
+
+  // Step 7: Resolve execution order
+  GitHubGateway.logStep(7, "Resolve workspace execution order");
+  const orderedBatches = WorkspaceService.resolveExecutionBatches({ pkgs: publishPkgs });
+
+  orderedBatches.forEach((batch, index) => {
+    console.log(`  Batch ${index + 1}: ${batch.map((pkg) => pkg.name).join(", ")}`);
+  });
+
+  // Step 8: Publish packages in Parallel Batches
+  GitHubGateway.logStep(8, "Publish packages (Parallel Batches)");
 
   const published = await WorkspaceService.publishBatches({
     batches: orderedBatches,
     inputs,
-    allPkgs: pkgs,
+    allPkgs,
   });
 
   console.log(`🚀 Published ${published.length} packages: ${published.map((p) => p.name).join(", ")}`);
