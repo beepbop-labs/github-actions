@@ -73,7 +73,7 @@ jobs:
       - name: Checkout actions repo
         uses: actions/checkout@v4
         with:
-          repository: beepbop-labs/github-actions-v2
+          repository: beepbop-labs/github-actions
           path: actions
 
       - name: Set up Bun
