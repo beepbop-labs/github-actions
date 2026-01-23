@@ -4,6 +4,7 @@ import type { T_Dependency, T_Package } from "@/types/package";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import semver from "semver";
 import { BRANCH_CONFIG, type T_WorkflowInputs } from "@/types/inputs";
 
 type T_LoadPackage = {
@@ -87,22 +88,29 @@ const calcUpdateVersion = async ({ currentVersion, bumpLevel }: T_CalcNewVersion
   if (!currentVersion || currentVersion === "null") currentVersion = "0.0.0";
 
   if (branch === BRANCH_CONFIG.main) {
-    const result = await GitHubGateway.execute({
-      command: `bunx semver -i "${bumpLevel}" "${currentVersion}"`,
-      options: { silent: true },
-    });
-    return result.stdout.trim();
+    // Use semver.inc() for stable version bumps
+    const newVersion = semver.inc(currentVersion, bumpLevel);
+    if (!newVersion) throw new Error(`Failed to bump version ${currentVersion} by ${bumpLevel}`);
+    return newVersion;
   }
 
   if (branch === BRANCH_CONFIG.dev) {
-    // Remove existing -dev.N
-    const base = currentVersion.replace(/-dev\.\d+$/, "");
-    let next = 0;
-    if (currentVersion.includes("-dev.")) {
-      const match = currentVersion.match(/-dev\.(\d+)$/);
-      if (match) next = parseInt(match[1], 10) + 1;
+    // Check if current version is already a dev version
+    const isDev = currentVersion.includes("-dev.");
+    let newVersion: string | null;
+
+    if (isDev) {
+      // Already has dev tag, just bump the prerelease number
+      // 1.0.1-dev.0 -> 1.0.1-dev.1
+      newVersion = semver.inc(currentVersion, "prerelease", "dev");
+    } else {
+      // Stable version -> bump patch (default safety) and add dev tag
+      // 1.0.0 -> 1.0.1-dev.0
+      newVersion = semver.inc(currentVersion, "prerelease", "dev");
     }
-    return `${base}-dev.${next}`;
+
+    if (!newVersion) throw new Error(`Failed to calculate dev version for ${currentVersion}`);
+    return newVersion;
   }
 
   throw new Error(`Branch '${branch}' is not main or dev`);
