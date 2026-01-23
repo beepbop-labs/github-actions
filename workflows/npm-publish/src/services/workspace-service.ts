@@ -247,8 +247,16 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
                   }
                   // 3. Fallback: try to fetch if not pre-fetched (shouldn't happen but safety net)
                   else {
+                    console.log(`  ⚠️ ${name} not pre-fetched, fetching now (this may slow down publishing)`);
                     try {
-                      const depInfo = await NpmGateway.fetchPackageInfo({ packageName: name });
+                      // Add timeout to prevent hanging during publishing
+                      const fetchPromise = NpmGateway.fetchPackageInfo({ packageName: name });
+                      const timeoutPromise = new Promise<never>((_, reject) => {
+                        setTimeout(() => reject(new Error(`Timeout fetching ${name}`)), 10000);
+                      });
+
+                      const depInfo = await Promise.race([fetchPromise, timeoutPromise]);
+
                       if (depInfo.version && depInfo.version !== "0.0.0") {
                         deps[name] = depInfo.version;
                         if (oldVersion !== deps[name]) {
@@ -289,6 +297,7 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
     }
   }
 
+  console.log(`🚀 Published ${published.length} packages: ${published.map((p) => p.name).join(", ")}`);
   return published;
 };
 

@@ -111,6 +111,9 @@ const run = async ({ inputs }: T_RunWorkspacePublish): Promise<void> => {
   });
 
   console.log(`🚀 Published ${published.length} packages: ${published.map((p) => p.name).join(", ")}`);
+
+  // Ensure function completes cleanly
+  return;
 };
 
 export const WorkspacePublishRunner = {

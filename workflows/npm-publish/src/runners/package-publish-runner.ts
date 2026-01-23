@@ -78,6 +78,9 @@ const run = async ({ inputs }: T_RunPackagePublish): Promise<void> => {
   await PackageService.publishPackage({ pkg, tag, access: inputs.access });
 
   console.log(`🚀 Published ${pkg.name}@${updateVersion}`);
+
+  // Ensure function completes cleanly
+  return;
 };
 
 export const PackagePublishRunner = {
