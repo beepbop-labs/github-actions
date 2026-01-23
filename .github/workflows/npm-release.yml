@@ -81,7 +81,7 @@ jobs:
           echo "📦 Package: $name"
 
       - name: Verify npm dependencies
-        uses: beepbop-labs/github-actions/.github/workflows/validate-npm-deps@main
+        uses: beepbop-labs/github-actions/.github/actions/verify-npm-deps@main
         with:
           working-directory: ${{ inputs.package-dir }}
 
