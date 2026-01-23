@@ -297,7 +297,6 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
     }
   }
 
-  console.log(`🚀 Published ${published.length} packages: ${published.map((p) => p.name).join(", ")}`);
   return published;
 };
 
