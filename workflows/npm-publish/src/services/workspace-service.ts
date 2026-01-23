@@ -227,9 +227,13 @@ const publishBatches = async ({ batches, inputs }: T_PublishBatches): Promise<T_
             if (deps) {
               for (const [name, val] of Object.entries(deps)) {
                 if (typeof val === "string" && val.includes("workspace:")) {
+                  const oldVersion = deps[name];
                   // 1. Check if it was published in this run (use new version)
                   if (publishedVersions.has(name)) {
                     deps[name] = publishedVersions.get(name)!;
+                    if (oldVersion !== deps[name]) {
+                      console.log(`  🔄 Updated ${name}: ${oldVersion} -> ${deps[name]}`);
+                    }
                   }
                   // 2. Fetch from NPM (ensure we point to a published version)
                   else {
@@ -237,6 +241,9 @@ const publishBatches = async ({ batches, inputs }: T_PublishBatches): Promise<T_
                       const depInfo = await NpmGateway.fetchPackageInfo({ packageName: name });
                       if (depInfo.version && depInfo.version !== "0.0.0") {
                         deps[name] = depInfo.version;
+                        if (oldVersion !== deps[name]) {
+                          console.log(`  🔄 Updated ${name}: ${oldVersion} -> ${deps[name]}`);
+                        }
                       } else {
                         throw new Error(`Could not find published version for ${name} on npm`);
                       }
