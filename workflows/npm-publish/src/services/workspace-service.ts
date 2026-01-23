@@ -244,7 +244,7 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
                       if (depInfo.version && depInfo.version !== "0.0.0") {
                         deps[name] = depInfo.version;
                         if (oldVersion !== deps[name]) {
-                          console.log(`  🔄 Updated ${name}: ${oldVersion} -> ${deps[name]}`);
+                          console.log(`  🔄 Updated dep ${name}: ${oldVersion} -> ${deps[name]}`);
                         }
                       } else {
                         throw new Error(`Could not find published version for ${name} on npm`);
