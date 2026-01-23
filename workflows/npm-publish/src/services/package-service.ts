@@ -67,6 +67,25 @@ const loadPackage = async ({ packagePath, inputs }: T_LoadPackage): Promise<T_Pa
   };
 };
 
+const getDirectorySize = async (dirPath: string): Promise<number> => {
+  const files = await fs.readdir(dirPath, { recursive: true });
+  let totalSize = 0;
+
+  for (const file of files) {
+    const filePath = path.join(dirPath, file);
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.isFile()) {
+        totalSize += stat.size;
+      }
+    } catch (error) {
+      // Skip files that can't be accessed
+    }
+  }
+
+  return totalSize;
+};
+
 const isValidVersion = ({ version }: { version: string }): boolean => {
   // Reject protocol-based versions (file:, link:, git:, http:, https:)
   if (/^(file|link|git|http|https):/.test(version)) return false;
@@ -146,20 +165,24 @@ type T_CreateTarball = {
 const createNpmTarball = async ({ pkg, tmpDir }: T_CreateTarball): Promise<void> => {
   // Download published tarball using streaming to avoid loading large files into memory
   const headers = NpmGateway.getHeaders();
-  const res = await fetch(pkg.tarballUrl!, { headers });
 
-  if (!res.ok) {
-    throw new Error(`Failed to download tarball from ${pkg.tarballUrl}: ${res.status} ${res.statusText}`);
-  }
-
-  if (!res.body) {
-    throw new Error(`No response body received for tarball download from ${pkg.tarballUrl}`);
-  }
-
-  // Stream the download to file instead of loading into memory
+  // Use curl with timeout instead of fetch for better reliability
   const tarballPath = path.join(tmpDir, "package.tgz");
-  const file = Bun.file(tarballPath);
-  await Bun.write(file, res);
+  const curlCommand = `curl -L --max-time 30 --fail --silent --show-error -H "Authorization: ${
+    headers.Authorization || ""
+  }" "${pkg.tarballUrl!}" -o "${tarballPath}"`;
+
+  await GitHubGateway.execute({
+    command: curlCommand,
+    options: { silent: true },
+  });
+
+  // Check file size to avoid processing extremely large packages
+  const stats = await fs.stat(tarballPath);
+  if (stats.size > 50 * 1024 * 1024) {
+    // 50MB limit
+    throw new Error(`Package tarball too large (${stats.size} bytes), skipping change detection`);
+  }
 
   await GitHubGateway.execute({
     command: `tar -xzf "${tarballPath}" -C "${tmpDir}"`,
@@ -168,9 +191,9 @@ const createNpmTarball = async ({ pkg, tmpDir }: T_CreateTarball): Promise<void>
 };
 
 const createLocalTarball = async ({ pkg, tmpDir }: T_CreateTarball): Promise<void> => {
-  // Create local tarball
+  // Create local tarball with timeout to prevent hanging on large packages
   await GitHubGateway.execute({
-    command: "bun pm pack",
+    command: "timeout 60 bun pm pack",
     options: { cwd: pkg.path, silent: true },
   });
 
@@ -194,8 +217,10 @@ const createLocalTarball = async ({ pkg, tmpDir }: T_CreateTarball): Promise<voi
 
   const tarballPath = localTarball.startsWith("./") ? localTarball : `./${localTarball}`;
   await fs.rename(path.join(pkg.path, tarballPath), path.join(tmpDir, path.basename(localTarball)));
+
+  // Extract with timeout to prevent hanging on large archives
   await GitHubGateway.execute({
-    command: `tar -xzf "${path.join(tmpDir, path.basename(localTarball))}" -C "${tmpDir}"`,
+    command: `timeout 30 tar -xzf "${path.join(tmpDir, path.basename(localTarball))}" -C "${tmpDir}"`,
     options: { silent: true },
   });
 
@@ -212,68 +237,107 @@ type T_CheckChanges = {
 };
 
 const checkChanges = async ({ pkgs }: T_CheckChanges): Promise<T_Package[]> => {
+  console.log(`🔍 Checking changes for ${pkgs.length} packages...`);
+
   const results = await Promise.all(
     pkgs.map(async (pkg: T_Package) => {
       // If no version on npm, strictly has changes (first publish)
-      if (pkg.version === "0.0.0" || !pkg.tarballUrl) return pkg;
+      if (pkg.version === "0.0.0" || !pkg.tarballUrl) {
+        console.log(`📦 ${pkg.name}: first publish (no existing version)`);
+        return pkg;
+      }
 
-      // Create temp directories in parallel for better performance
-      const [npmTmpDir, localTmpDir] = await Promise.all([
-        fs.mkdtemp(path.join(os.tmpdir(), "npm-")),
-        fs.mkdtemp(path.join(os.tmpdir(), "local-")),
-      ]);
+      console.log(`🔍 Checking ${pkg.name} (current: ${pkg.version})...`);
 
       try {
-        // Create npm and local tarballs in parallel
-        await Promise.all([
-          createNpmTarball({ pkg, tmpDir: npmTmpDir }),
-          createLocalTarball({ pkg, tmpDir: localTmpDir }),
+        // Create temp directories in parallel for better performance
+        const [npmTmpDir, localTmpDir] = await Promise.all([
+          fs.mkdtemp(path.join(os.tmpdir(), "npm-")),
+          fs.mkdtemp(path.join(os.tmpdir(), "local-")),
         ]);
 
-        // Compare (removing version) - with parallel processing
-        const pubPkgPath = path.join(npmTmpDir, "package", "package.json");
-        const locPkgPath = path.join(localTmpDir, "package", "package.json");
+        try {
+          // Create npm and local tarballs in parallel
+          await Promise.all([
+            createNpmTarball({ pkg, tmpDir: npmTmpDir }),
+            createLocalTarball({ pkg, tmpDir: localTmpDir }),
+          ]);
 
-        // Read both package.json files in parallel
-        const [pubPkgContent, locPkgContent] = await Promise.all([
-          fs.readFile(pubPkgPath, "utf-8"),
-          fs.readFile(locPkgPath, "utf-8"),
-        ]);
+          // Compare (removing version) - with parallel processing
+          const pubPkgPath = path.join(npmTmpDir, "package", "package.json");
+          const locPkgPath = path.join(localTmpDir, "package", "package.json");
 
-        const pubPkg = JSON.parse(pubPkgContent);
-        const locPkg = JSON.parse(locPkgContent);
+          // Read both package.json files in parallel
+          const [pubPkgContent, locPkgContent] = await Promise.all([
+            fs.readFile(pubPkgPath, "utf-8"),
+            fs.readFile(locPkgPath, "utf-8"),
+          ]);
 
-        // Remove version from both packages
-        delete pubPkg.version;
-        delete locPkg.version;
+          const pubPkg = JSON.parse(pubPkgContent);
+          const locPkg = JSON.parse(locPkgContent);
 
-        // Write both modified package.json files in parallel
-        await Promise.all([
-          fs.writeFile(pubPkgPath, JSON.stringify(pubPkg, null, 2)),
-          fs.writeFile(locPkgPath, JSON.stringify(locPkg, null, 2)),
-        ]);
+          // Remove version from both packages
+          delete pubPkg.version;
+          delete locPkg.version;
 
-        // Compare directories
-        const diff = await GitHubGateway.execute({
-          command: `diff -rq "${path.join(localTmpDir, "package")}" "${path.join(npmTmpDir, "package")}"`,
-          options: { silent: true, throwOnError: false },
-        });
+          // Write both modified package.json files in parallel
+          await Promise.all([
+            fs.writeFile(pubPkgPath, JSON.stringify(pubPkg, null, 2)),
+            fs.writeFile(locPkgPath, JSON.stringify(locPkg, null, 2)),
+          ]);
 
-        return diff.exitCode !== 0 ? pkg : null;
+          // Compare directories with timeout to prevent hanging
+          const diff = await GitHubGateway.execute({
+            command: `timeout 30 diff -rq "${path.join(localTmpDir, "package")}" "${path.join(npmTmpDir, "package")}"`,
+            options: { silent: true, throwOnError: false },
+          });
+
+          let hasChanges = diff.exitCode !== 0;
+
+          // If diff failed or timed out, fall back to a simpler check
+          if (diff.exitCode === 124) {
+            // timeout
+            console.log(`⏰ Diff timed out for ${pkg.name}, assuming changes`);
+            hasChanges = true;
+          } else if (diff.exitCode !== 0 && diff.exitCode !== 1) {
+            // diff error (not just differences found)
+            console.log(`⚠️ Diff failed for ${pkg.name}, checking file sizes instead`);
+            // Fallback: compare total file sizes as a rough change indicator
+            try {
+              const localSize = await getDirectorySize(path.join(localTmpDir, "package"));
+              const npmSize = await getDirectorySize(path.join(npmTmpDir, "package"));
+              hasChanges = Math.abs(localSize - npmSize) > 100; // 100 byte tolerance
+              console.log(`📊 Size comparison: local=${localSize}, npm=${npmSize}, changes=${hasChanges}`);
+            } catch (sizeError) {
+              console.log(`⚠️ Size comparison failed for ${pkg.name}, assuming changes`);
+              hasChanges = true;
+            }
+          }
+
+          console.log(`📦 ${pkg.name}: ${hasChanges ? "CHANGES DETECTED" : "no changes"}`);
+          return hasChanges ? pkg : null;
+        } finally {
+          // Always cleanup temp directories
+          await Promise.all([
+            fs.rm(npmTmpDir, { recursive: true, force: true }).catch(() => {}),
+            fs.rm(localTmpDir, { recursive: true, force: true }).catch(() => {}),
+          ]);
+        }
       } catch (error) {
-        const errorMessage = `❌ Failed to check changes for ${pkg.name}: ${
+        const errorMessage = `⚠️ Failed to check changes for ${pkg.name}: ${
           error instanceof Error ? error.message : String(error)
         }`;
-        console.error(errorMessage);
-        throw new Error(errorMessage);
-      } finally {
-        await fs.rm(npmTmpDir, { recursive: true, force: true });
-        await fs.rm(localTmpDir, { recursive: true, force: true });
+        console.warn(errorMessage);
+        // Don't fail the whole process - assume changes if we can't check
+        console.log(`📦 ${pkg.name}: assuming changes due to check failure`);
+        return pkg;
       }
     }),
   );
 
-  return results.filter((pkg): pkg is T_Package => pkg !== null);
+  const changedPackages = results.filter((pkg): pkg is T_Package => pkg !== null);
+  console.log(`✅ Change detection complete: ${changedPackages.length} packages have changes`);
+  return changedPackages;
 };
 
 type T_WritePackageJson = {

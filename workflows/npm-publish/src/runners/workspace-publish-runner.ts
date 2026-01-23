@@ -50,8 +50,22 @@ const run = async ({ inputs }: T_RunWorkspacePublish): Promise<void> => {
     console.log("🔥 Force publish enabled: including all packages");
     changedPkgs = npmPackages;
   } else {
-    changedPkgs = await PackageService.checkChanges({ pkgs: npmPackages });
-    console.log(`📦 Changed packages: ${changedPkgs.map((pkg) => pkg.name).join(", ") || "none"}`);
+    console.log("🔍 Starting change detection...");
+    try {
+      // Add timeout to prevent the entire change detection from hanging indefinitely
+      const changeDetectionPromise = PackageService.checkChanges({ pkgs: npmPackages });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Change detection timed out after 10 minutes")), 10 * 60 * 1000);
+      });
+
+      changedPkgs = await Promise.race([changeDetectionPromise, timeoutPromise]);
+      console.log(`📦 Changed packages: ${changedPkgs.map((pkg) => pkg.name).join(", ") || "none"}`);
+    } catch (error) {
+      console.error(`❌ Change detection failed: ${error instanceof Error ? error.message : String(error)}`);
+      // If change detection fails completely, fall back to assuming all packages have changes
+      console.log("🔄 Falling back to publishing all packages due to change detection failure");
+      changedPkgs = npmPackages;
+    }
   }
 
   if (changedPkgs.length === 0) {
