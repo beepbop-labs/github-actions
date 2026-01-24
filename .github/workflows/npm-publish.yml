@@ -13,11 +13,6 @@ on:
         type: string
         required: false
         default: "."
-      bump-level:
-        description: "Version bump level (major, minor, patch)"
-        type: string
-        required: false
-        default: "patch"
       build-command:
         description: "npm script to run before publishing"
         type: string
@@ -56,7 +51,6 @@ jobs:
       NPM_TOKEN: ${{ secrets.npm-token }}
       NPM_CONFIG_TOKEN: ${{ secrets.npm-token }}
       INPUT_BUILD_COMMAND: ${{ inputs.build-command }}
-      INPUT_BUMP_LEVEL: ${{ inputs.bump-level }}
       INPUT_ACCESS: ${{ inputs.access }}
       INPUT_ROOT_PATH: ${{ inputs.root-path }}
       INPUT_PACKAGE_PATH: ${{ inputs.package-path }}

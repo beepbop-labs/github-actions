@@ -1,7 +1,6 @@
 export type T_WorkflowInputs = {
   rootPath: string;
   packagePath: string;
-  bumpLevel: "major" | "minor" | "patch";
   buildCommand: string;
   access: "public" | "restricted";
   forcePublish: boolean;
@@ -11,7 +10,6 @@ export type T_WorkflowInputs = {
 export const DEFAULT_WORKFLOW_INPUTS: T_WorkflowInputs = {
   rootPath: ".",
   packagePath: ".",
-  bumpLevel: "patch",
   buildCommand: "build",
   access: "public",
   forcePublish: false,
@@ -23,3 +21,5 @@ export const BRANCH_CONFIG = {
   main: "main",
   dev: "dev",
 } as const;
+
+export const DEFAULT_BUMP_LEVEL = "patch";

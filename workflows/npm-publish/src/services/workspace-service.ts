@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { PackageService } from "./package-service";
 import { GitHubGateway } from "@/gateways/github-gateway";
 import { NpmGateway } from "@/gateways/npm-gateway";
-import type { T_WorkflowInputs } from "@/types/inputs";
+import { DEFAULT_BUMP_LEVEL, type T_WorkflowInputs } from "@/types/inputs";
 
 type T_LoadAllPackages = {
   rootPath: string;
@@ -216,7 +216,7 @@ const publishBatches = async ({ batches, inputs, allPkgs }: T_PublishBatches): P
           // Calc new version based on current npm version
           const updateVersion = await PackageService.calcUpdateVersion({
             currentVersion: pkg.version,
-            bumpLevel: inputs.bumpLevel,
+            bumpLevel: DEFAULT_BUMP_LEVEL,
           });
 
           // Update package version in json

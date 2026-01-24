@@ -89,10 +89,6 @@ const resolveInputs = (): T_WorkflowInputs => {
     rootPath: path.resolve(rawRootPath),
     packagePath: path.resolve(rawRootPath, rawPackagePath),
 
-    bumpLevel: GitHubGateway.getInput({
-      name: "bump-level",
-      fallback: DEFAULT_WORKFLOW_INPUTS.bumpLevel,
-    }) as T_WorkflowInputs["bumpLevel"],
     buildCommand: GitHubGateway.getInput({
       name: "build-command",
       fallback: DEFAULT_WORKFLOW_INPUTS.buildCommand,

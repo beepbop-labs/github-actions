@@ -1,4 +1,4 @@
-import type { T_WorkflowInputs } from "@/types/inputs";
+import { DEFAULT_BUMP_LEVEL, type T_WorkflowInputs } from "@/types/inputs";
 import { GitHubGateway } from "@/gateways/github-gateway";
 import { PackageService } from "@/services/package-service";
 
@@ -62,7 +62,7 @@ const run = async ({ inputs }: T_RunPackagePublish): Promise<void> => {
   GitHubGateway.logStep(5, "Calculate update version");
   const updateVersion = await PackageService.calcUpdateVersion({
     currentVersion: pkg.version,
-    bumpLevel: inputs.bumpLevel,
+    bumpLevel: DEFAULT_BUMP_LEVEL,
   });
   console.log(`📦 Update version: ${updateVersion}`);
 
