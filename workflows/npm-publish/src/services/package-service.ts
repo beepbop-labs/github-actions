@@ -379,7 +379,7 @@ const buildPackages = async ({ route, rootPath, pkgs, buildCommand }: T_BuildPac
     if (!packagePath) throw new Error("No package provided for build");
 
     await GitHubGateway.execute({
-      command: `bun install --frozen-lockfile`,
+      command: `bun install`,
       options: { cwd: packagePath },
     });
     await GitHubGateway.execute({
@@ -389,7 +389,7 @@ const buildPackages = async ({ route, rootPath, pkgs, buildCommand }: T_BuildPac
   } else {
     // Turborepo (package or workspace) - install at root, build with turbo filters
     await GitHubGateway.execute({
-      command: `bun install --frozen-lockfile`,
+      command: `bun install`,
       options: { cwd: rootPath },
     });
 
