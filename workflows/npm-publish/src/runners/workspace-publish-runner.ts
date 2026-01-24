@@ -55,7 +55,7 @@ const run = async ({ inputs }: T_RunWorkspacePublish): Promise<void> => {
       // Add timeout to prevent the entire change detection from hanging indefinitely
       const changeDetectionPromise = PackageService.checkChanges({ pkgs: npmPackages });
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Change detection timed out after 10 minutes")), 10 * 60 * 1000);
+        setTimeout(() => reject(new Error("Change detection timed out after 1 minute")), 60 * 1000);
       });
 
       changedPkgs = await Promise.race([changeDetectionPromise, timeoutPromise]);

@@ -236,6 +236,45 @@ type T_CheckChanges = {
   pkgs: T_Package[];
 };
 
+type T_PackageJson = {
+  version?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  [key: string]: any;
+};
+
+type T_RemoveWorkspaceDeps = {
+  localPkg: T_PackageJson;
+  publishedPkg: T_PackageJson;
+};
+
+/**
+ * Remove workspace dependencies from both packages to avoid false positives during comparison.
+ * Local packages have "workspace:*" but published packages have resolved versions like "^0.0.19".
+ */
+const removeWorkspaceDeps = ({ localPkg, publishedPkg }: T_RemoveWorkspaceDeps): void => {
+  const depTypes: Array<
+    keyof Pick<T_PackageJson, "dependencies" | "devDependencies" | "peerDependencies" | "optionalDependencies">
+  > = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+
+  for (const depType of depTypes) {
+    const deps = localPkg[depType];
+    if (deps) {
+      for (const [name, version] of Object.entries(deps)) {
+        if (typeof version === "string" && version.startsWith("workspace:")) {
+          // Remove from both local and published packages
+          delete localPkg[depType]![name];
+          if (publishedPkg[depType]?.[name]) {
+            delete publishedPkg[depType]![name];
+          }
+        }
+      }
+    }
+  }
+};
+
 const checkChanges = async ({ pkgs }: T_CheckChanges): Promise<T_Package[]> => {
   console.log(`🔍 Checking changes for ${pkgs.length} packages...`);
 
@@ -279,6 +318,9 @@ const checkChanges = async ({ pkgs }: T_CheckChanges): Promise<T_Package[]> => {
           // Remove version from both packages
           delete pubPkg.version;
           delete locPkg.version;
+
+          // Remove workspace dependencies to avoid false positives
+          removeWorkspaceDeps({ localPkg: locPkg, publishedPkg: pubPkg });
 
           // Write both modified package.json files in parallel
           await Promise.all([
