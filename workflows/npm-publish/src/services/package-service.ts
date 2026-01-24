@@ -252,7 +252,8 @@ type T_RemoveWorkspaceDeps = {
 
 /**
  * Remove workspace dependencies from both packages to avoid false positives during comparison.
- * Local packages have "workspace:*" but published packages have resolved versions like "^0.0.19".
+ * Local packages may have "workspace:*" or "0.0.0" (after npm pack resolution),
+ * while published packages have resolved versions like "^0.0.19".
  */
 const removeWorkspaceDeps = ({ localPkg, publishedPkg }: T_RemoveWorkspaceDeps): void => {
   const depTypes: Array<
@@ -263,7 +264,8 @@ const removeWorkspaceDeps = ({ localPkg, publishedPkg }: T_RemoveWorkspaceDeps):
     const deps = localPkg[depType];
     if (deps) {
       for (const [name, version] of Object.entries(deps)) {
-        if (typeof version === "string" && version.startsWith("workspace:")) {
+        // Check if it's a workspace dependency (either "workspace:*" or "0.0.0" after resolution)
+        if (typeof version === "string" && (version.startsWith("workspace:") || version === "0.0.0")) {
           // Remove from both local and published packages
           delete localPkg[depType]![name];
           if (publishedPkg[depType]?.[name]) {
