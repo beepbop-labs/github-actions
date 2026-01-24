@@ -361,14 +361,16 @@ const checkChanges = async ({ pkgs }: T_CheckChanges): Promise<T_Package[]> => {
             console.log(`🔍 Changes detected in ${pkg.name}:`);
             if (diff.stdout) {
               console.log(diff.stdout);
-            }
-            // Run detailed diff to show what actually changed
-            const detailedDiff = await GitHubGateway.execute({
-              command: `diff -r "${path.join(localTmpDir, "package")}" "${path.join(npmTmpDir, "package")}"`,
-              options: { silent: true, throwOnError: false },
-            });
-            if (detailedDiff.stdout) {
-              console.log(detailedDiff.stdout);
+              // Only run detailed diff if package.json changed
+              if (diff.stdout.includes("package.json")) {
+                const packageJsonDiff = await GitHubGateway.execute({
+                  command: `diff -r "${path.join(localTmpDir, "package")}" "${path.join(npmTmpDir, "package")}"`,
+                  options: { silent: true, throwOnError: false },
+                });
+                if (packageJsonDiff.stdout) {
+                  console.log(packageJsonDiff.stdout);
+                }
+              }
             }
           }
 
