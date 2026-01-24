@@ -354,6 +354,20 @@ const checkChanges = async ({ pkgs }: T_CheckChanges): Promise<T_Package[]> => {
               console.log(`⚠️ Size comparison failed for ${pkg.name}, assuming changes`);
               hasChanges = true;
             }
+          } else if (hasChanges) {
+            // Show what changed
+            console.log(`🔍 Changes detected in ${pkg.name}:`);
+            if (diff.stdout) {
+              console.log(diff.stdout);
+            }
+            // Run detailed diff to show what actually changed
+            const detailedDiff = await GitHubGateway.execute({
+              command: `diff -r "${path.join(localTmpDir, "package")}" "${path.join(npmTmpDir, "package")}"`,
+              options: { silent: true, throwOnError: false },
+            });
+            if (detailedDiff.stdout) {
+              console.log(detailedDiff.stdout);
+            }
           }
 
           console.log(`📦 ${pkg.name}: ${hasChanges ? "CHANGES DETECTED" : "no changes"}`);
